@@ -46,7 +46,7 @@ impl PackageRow {
         }
     }
 
-    pub fn update(&mut self, _message: Message) -> Command<Message> {
+    pub fn update(&mut self, _message: &Message) -> Command<Message> {
         Command::none()
     }
 
@@ -92,7 +92,7 @@ impl PackageRow {
             action_btn = button(
                 text(action_text)
                     .horizontal_alignment(alignment::Horizontal::Center)
-                    .width(Length::Units(100)),
+                    .width(100),
             )
             .on_press(Message::ActionPressed);
         } else {
@@ -102,7 +102,7 @@ impl PackageRow {
             action_btn = button(
                 text(action_text)
                     .horizontal_alignment(alignment::Horizontal::Center)
-                    .width(Length::Units(100)),
+                    .width(100),
             );
         }
 
@@ -123,7 +123,7 @@ impl PackageRow {
             })
             .width(Length::Fill)
             .on_press(Message::PackagePressed),
-            Space::with_width(Length::Units(15))
+            Space::with_width(15)
         ]
         .align_items(Alignment::Center)
         .into()

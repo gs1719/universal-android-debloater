@@ -25,17 +25,15 @@ jobs:
           - graphics: glow
             renderer: "-opengl"
           - graphics: wgpu
-            renderer: '' # Vulkan but we don't want this in the binary filename
+            renderer: "" # Vulkan but we don't want this in the binary filename
           - update_feature: self-update
-            update_name: '' # we don't want this in the binary filename
+            update_name: "" # we don't want this in the binary filename
           - update_feature: no-self-update
             update_name: "-noseflupdate"
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
       - uses: rui314/setup-mold@v1 # faster linker
-        with:
-          make-default: false
       - uses: actions/cache@v3
         with:
           path: |

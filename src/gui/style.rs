@@ -28,6 +28,8 @@ pub enum Container {
     Invisible,
     Frame,
     BorderedFrame,
+    Tooltip,
+    Background,
 }
 
 impl container::StyleSheet for Theme {
@@ -48,6 +50,20 @@ impl container::StyleSheet for Theme {
                 border_radius: 5.0,
                 border_width: 1.0,
                 border_color: self.palette().normal.error,
+            },
+            Container::Tooltip => container::Appearance {
+                background: Some(Background::Color(self.palette().base.foreground)),
+                text_color: Some(self.palette().bright.surface),
+                border_radius: 8.0,
+                border_width: 1.0,
+                border_color: self.palette().normal.primary,
+            },
+
+            Container::Background => container::Appearance {
+                background: Some(Background::Color(self.palette().base.background)),
+                text_color: Some(self.palette().bright.surface),
+                border_radius: 5.0,
+                ..container::Appearance::default()
             },
         }
     }
@@ -86,11 +102,9 @@ impl button::StyleSheet for Theme {
         };
 
         match style {
-            Button::Primary => active_appearance(None, p.bright.primary),
-            Button::Unavailable => active_appearance(None, p.bright.error),
-            Button::Refresh => active_appearance(None, p.bright.primary),
-            Button::SelfUpdate => active_appearance(None, p.bright.primary),
-            Button::UninstallPackage => active_appearance(None, p.bright.error),
+            Button::Primary | Button::SelfUpdate | Button::Refresh => {
+                active_appearance(None, p.bright.primary)
+            }
             Button::RestorePackage => active_appearance(None, p.bright.secondary),
             Button::NormalPackage => button::Appearance {
                 background: Some(Background::Color(p.base.foreground)),
@@ -111,6 +125,9 @@ impl button::StyleSheet for Theme {
                 border_color: p.normal.primary,
                 ..appearance
             },
+            Button::Unavailable | Button::UninstallPackage => {
+                active_appearance(None, p.bright.error)
+            }
         }
     }
 
@@ -125,15 +142,20 @@ impl button::StyleSheet for Theme {
         };
 
         match style {
-            Button::Primary => hover_appearance(p.bright.primary, None),
-            Button::Unavailable => hover_appearance(p.bright.error, None),
-            Button::Refresh => hover_appearance(p.bright.primary, None),
-            Button::SelfUpdate => hover_appearance(p.bright.primary, None),
-            Button::UninstallPackage => hover_appearance(p.bright.error, None),
-            Button::RestorePackage => hover_appearance(p.bright.secondary, None),
+            Button::Primary | Button::SelfUpdate | Button::Refresh => {
+                hover_appearance(p.bright.primary, None)
+            }
             Button::NormalPackage => hover_appearance(p.normal.primary, Some(p.bright.surface)),
             Button::SelectedPackage => hover_appearance(p.normal.primary, None),
+            Button::RestorePackage => hover_appearance(p.bright.secondary, None),
+            Button::Unavailable | Button::UninstallPackage => {
+                hover_appearance(p.bright.error, None)
+            }
         }
+    }
+
+    fn pressed(&self, style: &Self::Style) -> button::Appearance {
+        self.active(style)
     }
 
     fn disabled(&self, style: &Self::Style) -> button::Appearance {
@@ -152,14 +174,8 @@ impl button::StyleSheet for Theme {
         match style {
             Button::RestorePackage => disabled_appearance(p.normal.primary, Some(p.bright.primary)),
             Button::UninstallPackage => disabled_appearance(p.bright.error, None),
-            Button::Primary => disabled_appearance(p.normal.primary, Some(p.bright.primary)),
-            _ => button::Appearance { ..active },
-        }
-    }
-
-    fn pressed(&self, style: &Self::Style) -> button::Appearance {
-        button::Appearance {
-            ..self.active(style)
+            Button::Primary => disabled_appearance(p.bright.primary, Some(p.bright.primary)),
+            _ => active,
         }
     }
 }
@@ -176,37 +192,35 @@ impl scrollable::StyleSheet for Theme {
 
     fn active(&self, style: &Self::Style) -> scrollable::Scrollbar {
         let from_appearance = |c: Color| scrollable::Scrollbar {
-            background: Some(Background::Color(c)),
+            background: Some(Background::Color(Color::TRANSPARENT)),
             border_radius: 5.0,
             border_width: 0.0,
             border_color: Color::TRANSPARENT,
             scroller: scrollable::Scroller {
-                color: self.palette().base.foreground,
-                border_radius: 0.0,
-                border_width: 0.0,
+                color: c,
+                border_radius: 5.0,
+                border_width: 1.0,
                 border_color: Color::TRANSPARENT,
             },
         };
 
         match style {
-            Scrollable::Description => from_appearance(self.palette().base.foreground),
-            Scrollable::Packages => from_appearance(self.palette().base.background),
+            Scrollable::Description => from_appearance(self.palette().normal.surface),
+            Scrollable::Packages => from_appearance(self.palette().base.foreground),
         }
     }
 
-    fn hovered(&self, style: &Self::Style) -> scrollable::Scrollbar {
+    fn hovered(&self, style: &Self::Style, _mouse_over_scrollbar: bool) -> scrollable::Scrollbar {
         scrollable::Scrollbar {
-            scroller: scrollable::Scroller {
-                ..self.active(style).scroller
-            },
+            scroller: self.active(style).scroller,
             ..self.active(style)
         }
     }
 
     fn dragging(&self, style: &Self::Style) -> scrollable::Scrollbar {
-        let hovered = self.hovered(style);
+        let hovered = self.hovered(style, true);
         scrollable::Scrollbar {
-            scroller: scrollable::Scroller { ..hovered.scroller },
+            scroller: hovered.scroller,
             ..hovered
         }
     }
@@ -228,7 +242,7 @@ impl checkbox::StyleSheet for Theme {
         match style {
             CheckBox::PackageEnabled => checkbox::Appearance {
                 background: Background::Color(self.palette().base.background),
-                checkmark_color: self.palette().bright.primary,
+                icon_color: self.palette().bright.primary,
                 border_radius: 5.0,
                 border_width: 1.0,
                 border_color: self.palette().base.background,
@@ -239,7 +253,7 @@ impl checkbox::StyleSheet for Theme {
                     a: 0.55,
                     ..self.palette().base.background
                 }),
-                checkmark_color: self.palette().bright.primary,
+                icon_color: self.palette().bright.primary,
                 border_radius: 5.0,
                 border_width: 1.0,
                 border_color: self.palette().normal.primary,
@@ -247,7 +261,7 @@ impl checkbox::StyleSheet for Theme {
             },
             CheckBox::SettingsEnabled => checkbox::Appearance {
                 background: Background::Color(self.palette().base.background),
-                checkmark_color: self.palette().bright.primary,
+                icon_color: self.palette().bright.primary,
                 border_radius: 5.0,
                 border_width: 1.0,
                 border_color: self.palette().bright.primary,
@@ -255,7 +269,7 @@ impl checkbox::StyleSheet for Theme {
             },
             CheckBox::SettingsDisabled => checkbox::Appearance {
                 background: Background::Color(self.palette().base.foreground),
-                checkmark_color: self.palette().bright.primary,
+                icon_color: self.palette().bright.primary,
                 border_radius: 5.0,
                 border_width: 1.0,
                 border_color: self.palette().normal.primary,
@@ -267,7 +281,7 @@ impl checkbox::StyleSheet for Theme {
     fn hovered(&self, style: &Self::Style, is_checked: bool) -> checkbox::Appearance {
         let from_appearance = || checkbox::Appearance {
             background: Background::Color(self.palette().base.foreground),
-            checkmark_color: self.palette().bright.primary,
+            icon_color: self.palette().bright.primary,
             border_radius: 5.0,
             border_width: 2.0,
             border_color: self.palette().bright.primary,
@@ -275,10 +289,10 @@ impl checkbox::StyleSheet for Theme {
         };
 
         match style {
-            CheckBox::PackageEnabled => from_appearance(),
-            CheckBox::SettingsEnabled => from_appearance(),
-            CheckBox::PackageDisabled => self.active(style, is_checked),
-            CheckBox::SettingsDisabled => self.active(style, is_checked),
+            CheckBox::PackageEnabled | CheckBox::SettingsEnabled => from_appearance(),
+            CheckBox::PackageDisabled | CheckBox::SettingsDisabled => {
+                self.active(style, is_checked)
+            }
         }
     }
 }
@@ -368,7 +382,7 @@ impl pick_list::StyleSheet for Theme {
                 ..self.palette().normal.primary
             },
             border_radius: 2.0,
-            icon_size: 0.5,
+            handle_color: self.palette().bright.surface,
             placeholder_color: self.palette().bright.surface,
         }
     }
@@ -386,6 +400,7 @@ impl pick_list::StyleSheet for Theme {
 pub enum Text {
     #[default]
     Default,
+    Ok,
     Danger,
     Commentary,
     Color(Color),
@@ -393,7 +408,7 @@ pub enum Text {
 
 impl From<Color> for Text {
     fn from(color: Color) -> Self {
-        Text::Color(color)
+        Self::Color(color)
     }
 }
 
@@ -402,7 +417,10 @@ impl text::StyleSheet for Theme {
 
     fn appearance(&self, style: Self::Style) -> text::Appearance {
         match style {
-            Text::Default => Default::default(),
+            Text::Default => text::Appearance::default(),
+            Text::Ok => text::Appearance {
+                color: Some(self.palette().bright.secondary),
+            },
             Text::Danger => text::Appearance {
                 color: Some(self.palette().bright.error),
             },

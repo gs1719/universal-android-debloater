@@ -1,7 +1,6 @@
 use crate::core::sync::{hashset_system_packages, list_all_system_packages, User};
 use crate::core::theme::Theme;
 use crate::core::uad_lists::{Package, PackageState, Removal, UadList};
-use crate::gui::views::list::Selection;
 use crate::gui::widgets::package_row::PackageRow;
 use chrono::offset::Utc;
 use chrono::DateTime;
@@ -32,7 +31,7 @@ pub fn fetch_packages(
         if uad_lists.contains_key(p_name) {
             description = &uad_lists.get(p_name).unwrap().description;
             if description.is_empty() {
-                description = "[No description] : CONTRIBUTION WELCOMED"
+                description = "[No description] : CONTRIBUTION WELCOMED";
             };
             uad_list = uad_lists.get(p_name).unwrap().list;
             removal = uad_lists.get(p_name).unwrap().removal;
@@ -52,35 +51,8 @@ pub fn fetch_packages(
     user_package
 }
 
-pub fn update_selection_count(selection: &mut Selection, p_state: PackageState, add: bool) {
-    match p_state {
-        PackageState::Enabled => {
-            if add {
-                selection.enabled += 1
-            } else if selection.enabled > 0 {
-                selection.enabled -= 1
-            };
-        }
-        PackageState::Disabled => {
-            if add {
-                selection.disabled += 1
-            } else if selection.disabled > 0 {
-                selection.disabled -= 1
-            };
-        }
-        PackageState::Uninstalled => {
-            if add {
-                selection.uninstalled += 1
-            } else if selection.uninstalled > 0 {
-                selection.uninstalled -= 1
-            };
-        }
-        PackageState::All => {}
-    };
-}
-
-pub fn string_to_theme(theme: String) -> Theme {
-    match theme.as_str() {
+pub fn string_to_theme(theme: &str) -> Theme {
+    match theme {
         "Dark" => Theme::Dark,
         "Light" => Theme::Light,
         "Lupin" => Theme::Lupin,
@@ -108,21 +80,20 @@ pub fn open_url(dir: PathBuf) {
         Ok(o) => {
             if !o.status.success() {
                 let stderr = String::from_utf8(o.stderr).unwrap().trim_end().to_string();
-                error!("Can't open the following URL: {}", stderr)
+                error!("Can't open the following URL: {}", stderr);
             }
         }
         Err(e) => error!("Failed to run command to open the file explorer: {}", e),
     }
 }
 
+#[rustfmt::skip]
+#[allow(clippy::option_if_let_else)]
 pub fn last_modified_date(file: PathBuf) -> DateTime<Utc> {
-    match fs::metadata(file) {
-        Ok(metadata) => match metadata.modified() {
-            Ok(time) => time.into(),
-            Err(_) => Utc::now(),
-        },
+    fs::metadata(file).map_or_else(|_| Utc::now(), |metadata| match metadata.modified() {
+        Ok(time) => time.into(),
         Err(_) => Utc::now(),
-    }
+    })
 }
 
 pub fn format_diff_time_from_now(date: DateTime<Utc>) -> String {
@@ -146,37 +117,20 @@ pub struct DisplayablePath {
 
 impl fmt::Display for DisplayablePath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let stem = match self.path.file_stem() {
-            Some(p) => match p.to_os_string().into_string() {
+        let stem = self.path.file_stem().map_or_else(
+            || {
+                error!("[PATH STEM]: No file stem found");
+                "[File steam not found]".to_string()
+            },
+            |p| match p.to_os_string().into_string() {
                 Ok(stem) => stem,
                 Err(e) => {
                     error!("[PATH ENCODING]: {:?}", e);
                     "[PATH ENCODING ERROR]".to_string()
                 }
             },
-            None => {
-                error!("[PATH STEM]: No file stem found");
-                "[File steam not found]".to_string()
-            }
-        };
+        );
+
         write!(f, "{stem}")
     }
-}
-
-pub fn unavailable_users(user_list: &[User], packages: &[Vec<PackageRow>]) -> Vec<String> {
-    let mut unavailable_users = vec![];
-
-    for (u_index, p_list) in packages.iter().enumerate() {
-        if p_list.is_empty() {
-            unavailable_users.push(
-                user_list
-                    .iter()
-                    .find(|u| u.index == u_index)
-                    .unwrap()
-                    .id
-                    .to_string(),
-            );
-        }
-    }
-    unavailable_users
 }

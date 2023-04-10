@@ -2,9 +2,9 @@ use crate::core::config::{BackupSettings, Config, DeviceSettings, GeneralSetting
 use crate::core::save::{
     backup_phone, list_available_backup_user, list_available_backups, restore_backup, BACKUP_DIR,
 };
-use crate::core::sync::{perform_adb_commands, CommandType, Phone};
+use crate::core::sync::{get_android_sdk, perform_adb_commands, CommandType, Phone};
 use crate::core::theme::Theme;
-use crate::core::utils::{open_url, string_to_theme, unavailable_users, DisplayablePath};
+use crate::core::utils::{open_url, string_to_theme, DisplayablePath};
 use crate::gui::style;
 use crate::gui::views::list::PackageInfo;
 use crate::gui::widgets::package_row::PackageRow;
@@ -96,7 +96,7 @@ impl Settings {
                             selected: backups.first().cloned(),
                             users: phone.user_list.clone(),
                             selected_user: phone.user_list.first().copied(),
-                            backup_state: "".to_string(),
+                            backup_state: String::new(),
                         };
                     }
                     None => {
@@ -109,7 +109,7 @@ impl Settings {
                                 selected: backups.first().cloned(),
                                 users: phone.user_list.clone(),
                                 selected_user: phone.user_list.first().copied(),
-                                backup_state: "".to_string(),
+                                backup_state: String::new(),
                             },
                         }
                     }
@@ -142,7 +142,7 @@ impl Settings {
                     *nb_running_async_adb_commands = 0;
                     for p in &r_packages {
                         let p_info = PackageInfo {
-                            i_user: None,
+                            i_user: 0,
                             index: p.index,
                             removal: "RESTORE".to_string(),
                         };
@@ -158,8 +158,12 @@ impl Settings {
                         }
                     }
                     if r_packages.is_empty() {
-                        self.device.backup.backup_state =
-                            "Device state is already restored".to_string();
+                        if get_android_sdk() == 0 {
+                            self.device.backup.backup_state = "Device is not connected".to_string();
+                        } else {
+                            self.device.backup.backup_state =
+                                "Device state is already restored".to_string();
+                        }
                     }
                     info!(
                         "[RESTORE] Restoring backup {}",
@@ -168,8 +172,8 @@ impl Settings {
                     Command::batch(commands)
                 }
                 Err(e) => {
-                    self.device.backup.backup_state = format!("ERROR: {e}");
-                    error!("[BACKUP] {}", e);
+                    self.device.backup.backup_state = e.to_string();
+                    error!("{} - {}", self.device.backup.selected.as_ref().unwrap(), e);
                     Command::none()
                 }
             },
@@ -178,11 +182,7 @@ impl Settings {
         }
     }
 
-    pub fn view(
-        &self,
-        packages: &[Vec<PackageRow>],
-        phone: &Phone,
-    ) -> Element<Message, Renderer<Theme>> {
+    pub fn view(&self, phone: &Phone) -> Element<Message, Renderer<Theme>> {
         let radio_btn_theme = Theme::ALL
             .iter()
             .fold(row![].spacing(10), |column, option| {
@@ -190,7 +190,7 @@ impl Settings {
                     radio(
                         format!("{}", option.clone()),
                         *option,
-                        Some(string_to_theme(self.general.theme.clone())),
+                        Some(string_to_theme(&self.general.theme)),
                         Message::ApplyTheme,
                     )
                     .size(23),
@@ -224,7 +224,7 @@ impl Settings {
             row![
                 text("The following settings only affect the currently selected device :")
                     .style(style::Text::Danger),
-                text(phone.model.to_owned()),
+                text(phone.model.clone()),
                 Space::new(Length::Fill, Length::Shrink),
                 text(phone.adb_id.clone()).style(style::Text::Commentary)
             ]
@@ -238,13 +238,21 @@ impl Settings {
             text("This will not affect the following protected work profile users: ")
                 .size(15)
                 .style(style::Text::Commentary),
-            text(unavailable_users(&phone.user_list, packages).join(", "))
-                .size(15)
-                .style(style::Text::Danger)
+            text(
+                phone
+                    .user_list
+                    .iter()
+                    .filter(|&u| u.protected)
+                    .map(|u| u.id.to_string())
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            )
+            .size(15)
+            .style(style::Text::Danger)
         ];
 
         let multi_user_mode_checkbox = checkbox(
-            "Affect all the users of the phone (not only the selected user)",
+            "Affect all the users of the device (not only the selected user)",
             self.device.multi_user_mode,
             Message::MultiUserMode,
         )
@@ -266,7 +274,7 @@ impl Settings {
                 "https://github.com/0x192/universal-android-debloater/wiki/FAQ#\
                     why-is-the-disable-mode-setting-not-available-for-my-device",
             )))
-            .height(Length::Units(22))
+            .height(22)
             .style(style::Button::Unavailable);
 
         // Disabling package without root isn't really possible before Android Oreo (8.0)
@@ -318,18 +326,18 @@ impl Settings {
             .padding(5)
             .on_press(Message::BackupDevice)
             .style(style::Button::Primary)
-            .width(Length::Units(77));
+            .width(77);
 
         let restore_btn = |enabled| {
             if enabled {
                 button(text("Restore").horizontal_alignment(alignment::Horizontal::Center))
                     .padding(5)
                     .on_press(Message::RestoreDevice)
-                    .width(Length::Units(77))
+                    .width(77)
             } else {
                 button(text("No backup").horizontal_alignment(alignment::Horizontal::Center))
                     .padding(5)
-                    .width(Length::Units(77))
+                    .width(77)
             }
         };
 
@@ -382,16 +390,16 @@ impl Settings {
                 .style(style::Container::BorderedFrame)
         };
 
-        let content = if !phone.adb_id.clone().is_empty() {
+        let content = if phone.adb_id.clone().is_empty() {
             column![
                 text("Theme").size(25),
                 theme_ctn,
                 text("General").size(25),
                 general_ctn,
                 text("Current device").size(25),
-                warning_ctn,
-                device_specific_ctn,
-                backup_restore_ctn,
+                no_device_ctn(),
+                text("Backup / Restore").size(25),
+                no_device_ctn(),
             ]
             .width(Length::Fill)
             .spacing(20)
@@ -402,9 +410,9 @@ impl Settings {
                 text("General").size(25),
                 general_ctn,
                 text("Current device").size(25),
-                no_device_ctn(),
-                text("Backup / Restore").size(25),
-                no_device_ctn(),
+                warning_ctn,
+                device_specific_ctn,
+                backup_restore_ctn,
             ]
             .width(Length::Fill)
             .spacing(20)

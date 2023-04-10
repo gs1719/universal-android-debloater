@@ -87,7 +87,7 @@ impl Application for UadGui {
     }
 
     fn theme(&self) -> Theme {
-        string_to_theme(self.settings_view.general.theme.clone())
+        string_to_theme(&self.settings_view.general.theme)
     }
 
     fn title(&self) -> String {
@@ -95,6 +95,7 @@ impl Application for UadGui {
     }
     fn update(&mut self, msg: Message) -> Command<Message> {
         match msg {
+            #[allow(clippy::option_if_let_else)]
             Message::LoadDevices(devices_list) => {
                 self.selected_device = match &self.selected_device {
                     Some(s_device) => {
@@ -102,12 +103,17 @@ impl Application for UadGui {
                         devices_list
                             .iter()
                             .find(|phone| phone.adb_id == s_device.adb_id)
-                            .map(|x| x.to_owned())
+                            .cloned()
                     }
-                    None => devices_list.first().map(|x| x.to_owned()),
+                    None => devices_list.first().cloned(),
                 };
                 self.devices_list = devices_list;
-                self.update(Message::SettingsAction(SettingsMessage::LoadDeviceSettings));
+
+                #[allow(unused_must_use)]
+                {
+                    self.update(Message::SettingsAction(SettingsMessage::LoadDeviceSettings));
+                }
+
                 self.update(Message::AppsAction(AppsMessage::LoadUadList(true)))
             }
             Message::AppsPress => {
@@ -127,11 +133,11 @@ impl Application for UadGui {
                 Command::none()
             }
             Message::RefreshButtonPressed => {
-                self.apps_view.loading_state = ListLoadingState::FindingPhones("".to_string());
+                self.apps_view = AppsView::default();
                 Command::perform(get_devices_list(), Message::LoadDevices)
             }
             Message::RebootButtonPressed => {
-                self.apps_view.loading_state = ListLoadingState::FindingPhones("".to_string());
+                self.apps_view = AppsView::default();
                 self.selected_device = None;
                 self.devices_list = vec![];
                 Command::perform(
@@ -149,21 +155,46 @@ impl Application for UadGui {
                 )
                 .map(Message::AppsAction),
             Message::SettingsAction(msg) => {
-                if let SettingsMessage::RestoringDevice(ref output) = msg {
-                    self.nb_running_async_adb_commands -= 1;
-                    self.view = View::List;
-                    self.apps_view.update(
-                        &mut self.settings_view,
-                        &mut self.selected_device.clone().unwrap_or_default(),
-                        &mut self.update_state.uad_list,
-                        AppsMessage::RestoringDevice(output.clone()),
-                    );
+                match msg {
+                    SettingsMessage::RestoringDevice(ref output) => {
+                        self.nb_running_async_adb_commands -= 1;
+                        self.view = View::List;
 
-                    if self.nb_running_async_adb_commands == 0 {
-                        return self.update(Message::RefreshButtonPressed);
+                        #[allow(unused_must_use)]
+                        {
+                            self.apps_view.update(
+                                &mut self.settings_view,
+                                &mut self.selected_device.clone().unwrap_or_default(),
+                                &mut self.update_state.uad_list,
+                                AppsMessage::RestoringDevice(output.clone()),
+                            );
+                        }
+                        if self.nb_running_async_adb_commands == 0 {
+                            return self.update(Message::RefreshButtonPressed);
+                        }
                     }
+                    SettingsMessage::MultiUserMode(toggled) => {
+                        if toggled {
+                            for user in self.apps_view.phone_packages.clone() {
+                                for (i, _) in
+                                    user.iter().enumerate().filter(|&(_, pkg)| pkg.selected)
+                                {
+                                    for u in self
+                                        .selected_device
+                                        .as_ref()
+                                        .unwrap()
+                                        .user_list
+                                        .iter()
+                                        .filter(|&u| !u.protected)
+                                    {
+                                        self.apps_view.phone_packages[u.index][i].selected = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => (),
                 }
-
                 self.settings_view
                     .update(
                         &self.selected_device.clone().unwrap_or_default(),
@@ -180,7 +211,7 @@ impl Application for UadGui {
                     AboutMessage::UpdateUadLists => {
                         self.update_state.uad_list = UadListState::Downloading;
                         self.apps_view.loading_state =
-                            ListLoadingState::DownloadingList("".to_string());
+                            ListLoadingState::DownloadingList(String::new());
                         self.update(Message::AppsAction(AppsMessage::LoadUadList(true)))
                     }
                     AboutMessage::DoSelfUpdate => {
@@ -188,7 +219,7 @@ impl Application for UadGui {
                         if self.update_state.self_update.latest_release.is_some() {
                             self.update_state.self_update.status = SelfUpdateStatus::Updating;
                             self.apps_view.loading_state =
-                                ListLoadingState::_UpdatingUad("".to_string());
+                                ListLoadingState::_UpdatingUad(String::new());
                             let bin_name = bin_name().to_owned();
                             let release = self
                                 .update_state
@@ -207,7 +238,7 @@ impl Application for UadGui {
                         #[cfg(not(feature = "self-update"))]
                         Command::none()
                     }
-                    _ => Command::none(),
+                    AboutMessage::UrlPressed(_) => Command::none(),
                 }
             }
             Message::DeviceSelected(s_device) => {
@@ -220,55 +251,58 @@ impl Application for UadGui {
                     s_device.android_sdk, s_device.model
                 );
                 info!("{:-^65}", "-");
-                self.apps_view.loading_state = ListLoadingState::FindingPhones("".to_string());
-                self.update(Message::SettingsAction(SettingsMessage::LoadDeviceSettings));
+                self.apps_view.loading_state = ListLoadingState::FindingPhones(String::new());
+
+                #[allow(unused_must_use)]
+                {
+                    self.update(Message::SettingsAction(SettingsMessage::LoadDeviceSettings));
+                }
                 self.update(Message::AppsAction(AppsMessage::LoadPhonePackages((
                     self.apps_view.uad_lists.clone(),
                     UadListState::Done,
                 ))))
             }
-            Message::_NewReleaseDownloaded(_res) => {
+            Message::_NewReleaseDownloaded(res) => {
                 debug!("UAD update has been download!");
 
                 #[cfg(feature = "self-update")]
-                match _res {
-                    Ok((relaunch_path, cleanup_path)) => {
-                        // Remove first arg, which is path to binary. We don't use this first
-                        // arg as binary path because it's not reliable, per the docs.
-                        let mut args = std::env::args();
-                        args.next();
-                        let mut args: Vec<_> = args.collect();
+                if let Ok((relaunch_path, cleanup_path)) = res {
+                    // Remove first arg, which is path to binary. We don't use this first
+                    // arg as binary path because it's not reliable, per the docs.
+                    let mut args = std::env::args();
+                    args.next();
+                    let mut args: Vec<_> = args.collect();
 
-                        // Remove the `--self-update-temp` arg from args if it exists,
-                        // since we need to pass it cleanly. Otherwise new process will
-                        // fail during arg parsing.
-                        if let Some(idx) = args.iter().position(|a| a == "--self-update-temp") {
-                            args.remove(idx);
-                            // Remove path passed after this arg
-                            args.remove(idx);
+                    // Remove the `--self-update-temp` arg from args if it exists,
+                    // since we need to pass it cleanly. Otherwise new process will
+                    // fail during arg parsing.
+                    if let Some(idx) = args.iter().position(|a| a == "--self-update-temp") {
+                        args.remove(idx);
+                        // Remove path passed after this arg
+                        args.remove(idx);
+                    }
+
+                    match std::process::Command::new(relaunch_path)
+                        .args(args)
+                        .arg("--self-update-temp")
+                        .arg(&cleanup_path)
+                        .spawn()
+                    {
+                        Ok(_) => {
+                            if let Err(e) = remove_file(cleanup_path) {
+                                error!("Could not remove temp update file: {}", e);
+                            }
+                            std::process::exit(0)
                         }
-
-                        match std::process::Command::new(relaunch_path)
-                            .args(args)
-                            .arg("--self-update-temp")
-                            .arg(&cleanup_path)
-                            .spawn()
-                        {
-                            Ok(_) => {
-                                if let Err(e) = remove_file(cleanup_path) {
-                                    error!("Could not remove temp update file: {}", e);
-                                }
-                                std::process::exit(0)
+                        Err(error) => {
+                            if let Err(e) = remove_file(cleanup_path) {
+                                error!("Could not remove temp update file: {}", e);
                             }
-                            Err(error) => {
-                                if let Err(e) = remove_file(cleanup_path) {
-                                    error!("Could not remove temp update file: {}", e);
-                                }
-                                error!("Failed to update UAD: {}", error)
-                            }
+                            error!("Failed to update UAD: {}", error);
                         }
                     }
-                    Err(()) => error!("Failed to update UAD!"),
+                } else {
+                    error!("Failed to update UAD!");
                 }
                 Command::none()
             }
@@ -276,13 +310,13 @@ impl Application for UadGui {
                 match release {
                     Ok(r) => {
                         self.update_state.self_update.status = SelfUpdateStatus::Done;
-                        self.update_state.self_update.latest_release = r
+                        self.update_state.self_update.latest_release = r;
                     }
                     Err(_) => self.update_state.self_update.status = SelfUpdateStatus::Failed,
                 };
                 Command::none()
             }
-            _ => Command::none(),
+            Message::Nothing => Command::none(),
         }
     }
 
@@ -306,7 +340,7 @@ impl Application for UadGui {
                 .map(Message::AboutAction),
             View::Settings => self
                 .settings_view
-                .view(&self.apps_view.phone_packages, &selected_device)
+                .view(&selected_device)
                 .map(Message::SettingsAction),
         };
 
@@ -326,7 +360,7 @@ impl UadGui {
                 decorations: true,
                 ..iced::window::Settings::default()
             },
-            default_text_size: 17,
+            default_text_size: 17.0,
             ..Settings::default()
         })
     }

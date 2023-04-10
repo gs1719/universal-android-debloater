@@ -44,7 +44,7 @@ pub async fn backup_phone(
             user_backup.packages.push(CorePackage {
                 name: p.name.clone(),
                 state: p.state,
-            })
+            });
         }
         backup.users.push(user_backup);
     }
@@ -66,14 +66,12 @@ pub async fn backup_phone(
                 Err(err) => Err(err.to_string()),
             }
         }
-        Err(err) => {
-            error!("[BACKUP]: {}", err);
-            Err(err.to_string())
-        }
+        Err(err) => Err(err.to_string()),
     }
 }
 
 pub fn list_available_backups(dir: &Path) -> Vec<DisplayablePath> {
+    #[allow(clippy::option_if_let_else)]
     match fs::read_dir(dir) {
         Ok(files) => files
             .filter_map(|e| e.ok())
@@ -91,7 +89,11 @@ pub fn list_available_backup_user(backup: DisplayablePath) -> Vec<User> {
 
             let mut users = vec![];
             for u in phone_backup.users {
-                users.push(User { id: u.id, index: 0 });
+                users.push(User {
+                    id: u.id,
+                    index: 0,
+                    protected: false,
+                });
             }
             users
         }
@@ -128,15 +130,14 @@ pub fn restore_backup(
 
             let mut commands = vec![];
             for u in phone_backup.users {
-                let mut _index = 0;
-                match selected_device.user_list.iter().find(|x| x.id == u.id) {
-                    Some(i) => _index = i.index,
+                let index = match selected_device.user_list.iter().find(|x| x.id == u.id) {
+                    Some(i) => i.index,
                     None => return Err(format!("user {} doesn't exist", u.id)),
                 };
 
                 for (i, backup_package) in u.packages.iter().enumerate() {
                     let package: CorePackage;
-                    match packages[_index]
+                    match packages[index]
                         .iter()
                         .find(|x| x.name == backup_package.name)
                     {
@@ -150,7 +151,7 @@ pub fn restore_backup(
                     }
                     let p_commands = apply_pkg_state_commands(
                         &package,
-                        &backup_package.state,
+                        backup_package.state,
                         &settings
                             .backup
                             .selected_user
@@ -173,6 +174,6 @@ pub fn restore_backup(
             }
             Ok(commands)
         }
-        Err(e) => Err("[BACKUP]: ".to_owned() + &e.to_string()),
+        Err(e) => Err(e.to_string()),
     }
 }
